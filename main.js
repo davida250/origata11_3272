@@ -876,4 +876,3 @@ window.addEventListener('resize', () => {
 /* valley = +°, mountain = −°. */
 
 
-
