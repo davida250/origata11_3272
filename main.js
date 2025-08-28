@@ -423,7 +423,8 @@ const fs = /* glsl */`
 
     // iridescence
     vec3 V = normalize(cameraPosition - vPos);
-    vec3 N = normalize(vN);
+    // Flip normal on back faces so lighting behaves correctly on both sides.
+    vec3 N = normalize(vN) * (gl_FrontFacing ? 1.0 : -1.0);
     float cosT = clamp(dot(N, V), 0.0, 1.0);
     vec3 film = thinFilm(cosT, uFilmIOR, uFilmNm);
     float F = pow(1.0 - cosT, 5.0);
@@ -837,3 +838,4 @@ window.addEventListener('resize', () => {
 
 // ---------- Conventions ----------
 /* valley = +°, mountain = −°. */
+
