@@ -28,6 +28,52 @@
     .hud button:hover, .hud select:hover, .hud input[type="range"]:hover { background: #151a22; }
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .muted { opacity: 0.8 }
+
+    /* --- User Presets panel (upper-left) --- */
+    .presets-panel {
+      position: fixed; left: 12px; top: 32px; z-index: 11;
+      display: grid; gap: 6px; align-items: start;
+      width: min(380px, 50vw);
+      font: 12px/1.1 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+      color: #e7f2ff;
+      background: rgba(5, 7, 12, 0.35);
+      backdrop-filter: blur(2px);
+      border: 1px solid #2a3244; border-radius: 6px;
+      padding: 8px 10px;
+    }
+    .presets-panel label { display: grid; gap: 4px; }
+    .presets-panel select, .presets-panel button {
+      padding: 6px 10px; background: #11131a; border: 1px solid #2a3244; border-radius: 6px; cursor: pointer;
+      color: #e7f2ff;
+    }
+    .presets-panel button:hover, .presets-panel select:hover { background: #151a22; }
+    @media (max-width: 560px) {
+      .presets-panel { left: 10px; right: 10px; width: auto; }
+    }
+
+    /* --- Modal --- */
+    .modal.hidden { display: none; }
+    .modal {
+      position: fixed; inset: 0; z-index: 100;
+      display: grid; place-items: center;
+      background: rgba(0,0,0,0.55);
+    }
+    .modal-card {
+      min-width: 280px; max-width: 92vw;
+      background: #0f121a; border: 1px solid #2a3244; border-radius: 8px; padding: 14px;
+      color: #e7f2ff; box-shadow: 0 10px 30px rgba(0,0,0,0.5);
+      font: 12px/1.2 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    }
+    .modal-title { font-weight: 600; margin-bottom: 8px; }
+    .modal-field { display: grid; gap: 4px; margin: 8px 0 12px; }
+    .modal-field input {
+      padding: 8px 10px; background: #11131a; border: 1px solid #2a3244; border-radius: 6px; color: #e7f2ff;
+    }
+    .modal-actions { display: flex; gap: 8px; justify-content: flex-end; }
+    .modal-actions button {
+      padding: 8px 12px; background: #11131a; border: 1px solid #2a3244; border-radius: 6px; color: #e7f2ff; cursor: pointer;
+    }
+    .modal-actions button:hover { background: #151a22; }
   </style>
 
   <!-- ESM polyfill -->
@@ -47,6 +93,34 @@
 <body>
   <div id="app"></div>
   <div class="brand">Origata v0.32 - drag to orbit, wheel to zoom</div>
+
+  <!-- User Presets (upper-left, under brand) -->
+  <div class="presets-panel" id="presetsPanel">
+    <label>
+      Presets
+      <select id="userPresets"></select>
+    </label>
+    <div class="row">
+      <button id="btnLoadUserPreset" title="Load the selected user preset">Load</button>
+      <button id="btnDeleteUserPreset" title="Delete the selected user preset">Delete</button>
+      <button id="btnSaveUserPreset" title="Save current sliders & checkboxes as a preset">Save Preset</button>
+    </div>
+  </div>
+
+  <!-- Save Preset Modal -->
+  <div id="saveModal" class="modal hidden" aria-modal="true" role="dialog">
+    <div class="modal-card">
+      <div class="modal-title">Save Preset</div>
+      <label class="modal-field">
+        Name
+        <input id="presetNameInput" type="text" placeholder="e.g. Neon Gate — slow float" />
+      </label>
+      <div class="modal-actions">
+        <button id="saveModalConfirm">Save</button>
+        <button id="saveModalCancel" class="muted">Cancel</button>
+      </div>
+    </div>
+  </div>
 
   <div class="hud">
     <div class="row">
@@ -99,4 +173,3 @@
   <noscript>This page needs JavaScript enabled.</noscript>
 </body>
 </html>
-
