@@ -1,13 +1,8 @@
+// Origata
 /**
- * Origata v0.31 — Rigid‑hinge origami with UV‑space textures & motion
- * - Presets: Book Fold (default), Gate Fold.
- * - Texture Type: Kaleido (UV), Perlin/FBM, Fractal (Julia).
- * - Sliders (each with Auto): brightness, contrast, textureScale, textureEvolution.
- * - Back face uses same texture with +0.5 hue shift (distinct back).
- * - Motion: spin rate (deg/s), float amplitude/frequency — with Auto.
- * - Global Speed slider multiplies *all* auto motions (×0.2 … ×5).
- * - Mesh is cut along crease lines for crisp hinges.
- * - Safer shader uniform sizes (MAX_CREASES=24, MAX_MASKS_PER=2) to avoid GPU limits.
+ * Origami — Rigid‑Hinge Folding with UV‑space Textures (Kaleido / Perlin / Fractal)
+ * (Added: brightness/contrast (+Auto), back-face hue shift, object spin/float (+Auto),
+ *  texture evolution (+Auto).)
  */
 
 import * as THREE from 'three';
@@ -54,10 +49,10 @@ const BASE_SEG = 48;         // base grid before cutting along creases
 const VALLEY = +1, MOUNTAIN = -1;
 
 // ---------- Math helpers ----------
-const tmp = { v: new THREE.Vector3() };
+const tmp = { v: new THREE.Vector3(), u: new THREE.Vector3() };
 function signedDistance2(p /*Vec2|Vec3*/, a /*Vec3*/, d /*unit Vec3*/) {
   const px = p.x - a.x, py = p.y - a.y;
-  return d.x * py - d.y * px;
+  return d.x * py - d.y * px; // z-component of 2D cross
 }
 function rotatePointAroundLine(p, a, axisUnit, ang) {
   tmp.v.copy(p).sub(a).applyAxisAngle(axisUnit, ang).add(a);
@@ -73,20 +68,20 @@ const Easings = {
 };
 
 // ---------- Creases + MASKS + Timeline ----------
-const MAX_CREASES = 24;
-const MAX_MASKS_PER = 2;
+const MAX_CREASES = 48;
+const MAX_MASKS_PER = 4;
 
 const base = {
   count: 0,
   A: Array.from({ length: MAX_CREASES }, () => new THREE.Vector3()),
   D: Array.from({ length: MAX_CREASES }, () => new THREE.Vector3(1,0,0)),
-  amp:  new Array(MAX_CREASES).fill(0),
-  sign: new Array(MAX_CREASES).fill(1),
+  amp:  new Array(MAX_CREASES).fill(0),      // |angle| in radians
+  sign: new Array(MAX_CREASES).fill(1),      // +1=valley, -1=mountain
   mCount: new Array(MAX_CREASES).fill(0),
   mA:  Array.from({ length: MAX_CREASES }, () => Array.from({ length: MAX_MASKS_PER }, () => new THREE.Vector3())),
   mD:  Array.from({ length: MAX_CREASES }, () => Array.from({ length: MAX_MASKS_PER }, () => new THREE.Vector3(1,0,0))),
-  t0:  new Array(MAX_CREASES).fill(-1),
-  t1:  new Array(MAX_CREASES).fill(-1)
+  t0:  new Array(MAX_CREASES).fill(-1),      // start time in [0..1], −1 = sequential default
+  t1:  new Array(MAX_CREASES).fill(-1)       // end time
 };
 function resetBase(){
   base.count = 0;
@@ -127,16 +122,17 @@ const eff = {
 
 // ---------- Drive (global) ----------
 const drive = {
-  animate:false,
-  baseSpeed:0.25,
-  progress:0.0,
+  animate:false,       // ping-pong 0↔1
+  baseSpeed:0.25,      // progress units per second *before* multiplier
+  progress:0.0,        // global progress across timeline
   easing:'smoothstep',
   dir:+1,
   stepCount:1,
   checkpoints:[0,1]
 };
 function speedMultiplierFromSlider(x01){
-  return Math.pow(5, (x01 - 0.5) * 2.0); // [0..1] → [0.2..5]
+  // map [0..1] → [1/5 .. 5], mid=1 (exponential for symmetric perception)
+  return Math.pow(5, (x01 - 0.5) * 2.0);
 }
 
 // Build checkpoints from unique t0s (+0 and 1) for Step Prev/Next UI
@@ -173,6 +169,7 @@ function computeAngles(){
 
 // propagate axes and mask lines by earlier folds (crisp hinge: only + side moves)
 function computeEffectiveFrames(){
+  // base copy
   for (let i=0;i<base.count;i++){
     eff.A[i].copy(base.A[i]); eff.D[i].copy(base.D[i]).normalize();
     for (let m=0;m<MAX_MASKS_PER;m++){
@@ -180,6 +177,7 @@ function computeEffectiveFrames(){
       eff.mD[i][m].copy(base.mD[i][m]).normalize();
     }
   }
+  // sequentially rotate future creases & their masks
   for (let j=0;j<base.count;j++){
     const Aj = eff.A[j]; const Dj = eff.D[j].clone().normalize();
     const ang = eff.ang[j]; if (Math.abs(ang) < 1e-7) continue;
@@ -248,8 +246,10 @@ const vs = /* glsl */`
 
     for (int i=0; i<MAX_CREASES; i++){
       if (i >= uCreaseCount) break;
+
       vec3 a = uAeff[i];
       vec3 d = normalize(uDeff[i]);
+
       float sd = signedDistanceToLine(p.xy, a.xy, d.xy);
       if (sd > 0.0 && inMask(i, p.xy)){
         p = rotateAroundLine(p, a, d, uAng[i]);
@@ -274,10 +274,10 @@ const fs = /* glsl */`
   uniform float uSectors, uHueShift;
   uniform float uIridescence, uFilmIOR, uFilmNm, uFiber, uEdgeGlow;
   uniform int   uTexKind;         // 0=kaleido(UV) 1=perlin 2=fractal julia
-  uniform float uTexScale;        // 1.0 at slider midpoint (×0.25..×4)
-  uniform float uTexEvolution;    // 0..1 evolution control
-  uniform float uBrightness;      // -1..1 (0 = none)
-  uniform float uContrast;        // 0..2  (1 = none)
+  uniform float uTexScale;        // 1.0 at slider midpoint (×0.25..×4 overall)
+  uniform float uBrightness;      // [-1..+1] additive
+  uniform float uContrast;        // [-1..+1] scale around 0.5
+  uniform float uTexEvo;          // evolution offset, added to uTime
 
   // Folds (for edge glow visual only)
   uniform int   uCreaseCount;
@@ -305,16 +305,18 @@ const fs = /* glsl */`
     return c.z * mix(vec3(1.0), rgb, c.y);
   }
   vec3 rgb2hsv(vec3 c){
-    float cMax = max(c.r, max(c.g, c.b));
-    float cMin = min(c.r, min(c.g, c.b));
-    float delta = cMax - cMin + 1e-6;
+    float cmax = max(c.r, max(c.g, c.b));
+    float cmin = min(c.r, min(c.g, c.b));
+    float d = cmax - cmin;
     float h = 0.0;
-    if (cMax == c.r) h = ((c.g - c.b) / delta);
-    else if (cMax == c.g) h = 2.0 + (c.b - c.r) / delta;
-    else h = 4.0 + (c.r - c.g) / delta;
-    h = fract(h / 6.0);
-    float s = (cMax <= 0.0) ? 0.0 : delta / cMax;
-    float v = cMax;
+    if (d > 0.0){
+      if (cmax == c.r)      h = (c.g - c.b) / d + (c.g < c.b ? 6.0 : 0.0);
+      else if (cmax == c.g) h = (c.b - c.r) / d + 2.0;
+      else                  h = (c.r - c.g) / d + 4.0;
+      h /= 6.0;
+    }
+    float s = cmax == 0.0 ? 0.0 : d / cmax;
+    float v = cmax;
     return vec3(h, s, v);
   }
   vec3 thinFilm(float cosTheta, float ior, float nm){
@@ -325,45 +327,43 @@ const fs = /* glsl */`
   float sdLine(vec2 p, vec2 a, vec2 d){
     return abs(d.x*(p.y - a.y) - d.y*(p.x - a.x));
   }
-
-  // Groovy palettes
   vec3 palette(float t){
     return 0.55 + 0.45*cos(6.2831*(vec3(0.0,0.33,0.67)*t + vec3(0.0,0.15,0.25)));
   }
-
-  // Evolution helpers
-  float evoSpeed(){ return mix(0.2, 2.0, clamp(uTexEvolution,0.0,1.0)); }
-  float evoAmp(){ return mix(0.8, 2.8, clamp(uTexEvolution,0.0,1.0)); }
+  vec3 applyBC(vec3 col, float b, float c){
+    col = (col - 0.5) * (1.0 + c) + 0.5 + b;
+    return clamp(col, 0.0, 1.0);
+  }
 
   vec3 tex_kaleido(vec2 uv){
+    // UV-centered polar kaleidoscope; uv in [-0.5,0.5] scaled by uTexScale
     vec2 c = uv * uTexScale;
     float theta = atan(c.y, c.x);
-    float r = length(c);
+    float r = length(c) * 1.0;
     float seg = 2.0*PI / max(3.0, uSectors);
     float a = mod(theta, seg); a = abs(a - 0.5*seg);
     vec2 k = vec2(cos(a), sin(a)) * r;
 
-    float t = evoSpeed() * uTime;
-    vec2 q = k*2.0 + vec2(0.18*t, -0.12*t);
-    q += evoAmp()*0.22*vec2(noise(q+13.1+uTexEvolution*11.0), noise(q+71.7-uTexEvolution*9.0));
+    vec2 q = k*2.0 + vec2(0.2*(uTime+uTexEvo), -0.14*(uTime+uTexEvo));
+    q += 0.6*vec2(noise(q+13.1), noise(q+71.7));
     float n = noise(q*2.0) * 0.75 + 0.25*noise(q*5.0);
-    float hue = fract(n + 0.15*sin(0.3*t) + uHueShift);
+    float hue = fract(n + 0.15*sin((uTime+uTexEvo)*0.3) + uHueShift);
     return hsv2rgb(vec3(hue, 0.9, smoothstep(0.25, 1.0, n)));
   }
   vec3 tex_perlin(vec2 uv){
-    vec2 p = uv * uTexScale * mix(6.0, 12.0, uTexEvolution);
-    float t = evoSpeed() * uTime;
-    vec2 w = vec2(fbm(p + vec2(0.0, 0.30*t)), fbm(p + vec2(5.2, -0.25*t)));
-    p += 2.0*mix(1.2, 2.8, uTexEvolution) * w;
+    vec2 p = uv * uTexScale * 7.5;
+    // domain warp for groovy flow
+    vec2 w = vec2(fbm(p + vec2(0.0, (uTime+uTexEvo)*0.3)), fbm(p + vec2(5.2, -(uTime+uTexEvo)*0.25)));
+    p += 2.0*w;
     float n = fbm(p);
     float s = smoothstep(0.0, 1.0, n);
-    vec3 col = palette(s + 0.15*sin(0.25*t));
+    vec3 col = palette(s + 0.15*sin((uTime+uTexEvo)*0.25));
     return mix(col, vec3(s), 0.15);
   }
   vec3 tex_fractal(vec2 uv){
+    // Julia set (animated c), centered uv * uTexScale
     vec2 z = uv * (uTexScale*2.2);
-    float t = evoSpeed() * uTime;
-    vec2 c = 0.5*mix(0.6, 1.1, uTexEvolution) * vec2(sin(0.31*t), cos(0.23*t));
+    vec2 c = 0.5*vec2(sin(0.31*(uTime+uTexEvo)), cos(0.23*(uTime+uTexEvo)));
     float m = 0.0;
     vec2 z0 = z;
     const int ITR = 32;
@@ -379,12 +379,8 @@ const fs = /* glsl */`
     return col;
   }
 
-  vec3 applyBC(vec3 col){
-    col = (col - 0.5) * uContrast + 0.5 + uBrightness;
-    return clamp(col, 0.0, 1.0);
-  }
-
   void main(){
+    // UV in [-0.5,0.5]
     vec2 uv = vUv - 0.5;
 
     vec3 baseCol;
@@ -392,9 +388,10 @@ const fs = /* glsl */`
     else if (uTexKind == 1) baseCol = tex_perlin(uv);
     else baseCol = tex_fractal(uv);
 
-    baseCol = applyBC(baseCol);
+    // brightness/contrast on the texture color (pre‑paper/film)
+    baseCol = applyBC(baseCol, uBrightness, uContrast);
 
-    // paper fiber + grain
+    // paper fiber + grain (anchored to surface space)
     float fiberLines = 0.0;
     {
       float warp = fbm(vUv*4.0 + vec2(0.2*uTime, -0.1*uTime));
@@ -405,14 +402,14 @@ const fs = /* glsl */`
     float grain = fbm(vUv*25.0);
     baseCol *= 1.0 + uFiber*(0.06*grain - 0.03) + uFiber*0.08*fiberLines;
 
-    // back face hue shift (+0.5 wrap)
-    if (!gl_FrontFacing){
+    // Back side hue shift: same texture, +0.5 hue (wrap)
+    if (!gl_FrontFacing) {
       vec3 hsv = rgb2hsv(baseCol);
       hsv.x = fract(hsv.x + 0.5);
       baseCol = hsv2rgb(hsv);
     }
 
-    // crease glow
+    // crease glow (distance in local plane)
     float minD = 1e9;
     for (int i=0; i<MAX_CREASES; i++){
       if (i >= uCreaseCount) break;
@@ -424,7 +421,7 @@ const fs = /* glsl */`
     float aa = fwidth(minD);
     float edge = 1.0 - smoothstep(0.0025, 0.0025 + aa, minD);
 
-    // iridescence film
+    // iridescence
     vec3 V = normalize(cameraPosition - vPos);
     vec3 N = normalize(vN);
     float cosT = clamp(dot(N, V), 0.0, 1.0);
@@ -452,9 +449,9 @@ const uniforms = {
   uEdgeGlow:   { value: 0.8 },
   uTexKind:    { value: 0 },     // 0=kaleido,1=perlin,2=fractal
   uTexScale:   { value: 1.0 },   // 1.0 at midpoint
-  uTexEvolution:{ value: 0.5 },  // 0..1
-  uBrightness: { value: 0.0 },   // -1..1
-  uContrast:   { value: 1.0 },   // 0..2
+  uBrightness: { value: 0.0 },   // new
+  uContrast:   { value: 0.0 },   // new
+  uTexEvo:     { value: 0.0 },   // new
 
   // Folding data
   uCreaseCount: { value: 0 },
@@ -506,6 +503,7 @@ scene.add(new THREE.Mesh(
 
 // Build a plane subdivided into BASE_SEG, then cut along crease lines
 function buildCutSheetGeometry(size, seg, lines /* {A:Vec3, D:Vec3}[] */){
+  // Base grid → non-indexed triangles
   const tris = [];
   for (let iy=0; iy<seg; iy++){
     const v0 = -0.5 + iy/seg, v1 = -0.5 + (iy+1)/seg;
@@ -513,10 +511,12 @@ function buildCutSheetGeometry(size, seg, lines /* {A:Vec3, D:Vec3}[] */){
     for (let ix=0; ix<seg; ix++){
       const u0 = -0.5 + ix/seg, u1 = -0.5 + (ix+1)/seg;
       const x0 = u0 * size, x1 = u1 * size;
+      // tri A
       tris.push({
         p:[ new THREE.Vector3(x0,y0,0), new THREE.Vector3(x1,y0,0), new THREE.Vector3(x1,y1,0) ],
         uv:[ new THREE.Vector2(u0+0.5, v0+0.5), new THREE.Vector2(u1+0.5, v0+0.5), new THREE.Vector2(u1+0.5, v1+0.5) ]
       });
+      // tri B
       tris.push({
         p:[ new THREE.Vector3(x0,y0,0), new THREE.Vector3(x1,y1,0), new THREE.Vector3(x0,y1,0) ],
         uv:[ new THREE.Vector2(u0+0.5, v0+0.5), new THREE.Vector2(u1+0.5, v1+0.5), new THREE.Vector2(u0+0.5, v1+0.5) ]
@@ -594,9 +594,21 @@ function rebuildSheetGeometry(){
   sheet.geometry = g;
 }
 
-// ---------- Auto helpers ----------
-const autos = []; // { get,set,min,max,rate,dir,on,ctrl,label,integer }
-function registerAuto(folder, ctrl, label, get, set, min, max, { integer=false, rate=null }={}){
+// ---------- GUI: Look controls + Auto oscillators ----------
+const gui = new GUI();
+const looks  = gui.addFolder('Look');
+const autos  = []; // { get,set,min,max,rate,dir,on,ctrl,label,integer }
+function registerAuto(ctrl, label, get, set, min, max, { integer=false, rate=null }={}){
+  const range = max - min;
+  const entry = { get, set, min, max, integer, dir:+1, rate: (rate ?? range/6), ctrl, on:false, label };
+  const autoState = { Auto:false };
+  const autoCtrl  = looks.add(autoState, 'Auto').name(label + ' Auto');
+  autoCtrl.onChange(v => entry.on = !!v);
+  autos.push(entry);
+  return entry;
+}
+// same as registerAuto but adds the Auto toggle into a specific folder (used for Object)
+function registerAutoIn(folder, ctrl, label, get, set, min, max, { integer=false, rate=null }={}){
   const range = max - min;
   const entry = { get, set, min, max, integer, dir:+1, rate: (rate ?? range/6), ctrl, on:false, label };
   const autoState = { Auto:false };
@@ -605,7 +617,7 @@ function registerAuto(folder, ctrl, label, get, set, min, max, { integer=false, 
   autos.push(entry);
   return entry;
 }
-function updateAutos(dt, speedMul){
+function updateLookAutos(dt, speedMul){
   const dtEff = dt * speedMul;
   for (const a of autos){
     if (!a.on) continue;
@@ -614,36 +626,35 @@ function updateAutos(dt, speedMul){
     if (v <= a.min){ v = a.min; a.dir = +1; }
     if (a.integer) v = Math.round(v);
     a.set(v);
-    a.ctrl.updateDisplay();
+    a.ctrl.updateDisplay(); // live UI movement
   }
 }
 
-// ---------- GUI ----------
-const gui   = new GUI();
-const looks = gui.addFolder('Look');
-const motion= gui.addFolder('Motion');
-
-// Look sliders (+ Auto, including kaleido sectors)
+// Sliders + Texture controls (every Look slider has an Auto)
 const cSectors = looks.add(uniforms.uSectors, 'value', 3, 24, 1).name('kaleidoSectors');
-registerAuto(looks, cSectors, 'kaleidoSectors', () => uniforms.uSectors.value, v => uniforms.uSectors.value = v, 3, 24, { integer:true });
-
+registerAuto(cSectors, 'kaleidoSectors', () => uniforms.uSectors.value, v => uniforms.uSectors.value = v, 3, 24, { integer:true });
 const cHue     = looks.add(uniforms.uHueShift, 'value', 0, 1, 0.001).name('hueShift');
-registerAuto(looks, cHue, 'hueShift', () => uniforms.uHueShift.value, v => uniforms.uHueShift.value = v, 0, 1, {});
-
+registerAuto(cHue, 'hueShift', () => uniforms.uHueShift.value, v => uniforms.uHueShift.value = v, 0, 1, {});
 const cIri     = looks.add(uniforms.uIridescence, 'value', 0, 1, 0.001).name('iridescence');
-registerAuto(looks, cIri, 'iridescence', () => uniforms.uIridescence.value, v => uniforms.uIridescence.value = v, 0, 1, {});
-
+registerAuto(cIri, 'iridescence', () => uniforms.uIridescence.value, v => uniforms.uIridescence.value = v, 0, 1, {});
 const cIOR     = looks.add(uniforms.uFilmIOR, 'value', 1.0, 2.333, 0.001).name('filmIOR');
-registerAuto(looks, cIOR, 'filmIOR', () => uniforms.uFilmIOR.value, v => uniforms.uFilmIOR.value = v, 1.0, 2.333, {});
-
+registerAuto(cIOR, 'filmIOR', () => uniforms.uFilmIOR.value, v => uniforms.uFilmIOR.value = v, 1.0, 2.333, {});
 const cNm      = looks.add(uniforms.uFilmNm, 'value', 100, 800, 1).name('filmThickness(nm)');
-registerAuto(looks, cNm, 'filmThickness(nm)', () => uniforms.uFilmNm.value, v => uniforms.uFilmNm.value = v, 100, 800, {});
-
+registerAuto(cNm, 'filmThickness(nm)', () => uniforms.uFilmNm.value, v => uniforms.uFilmNm.value = v, 100, 800, {});
 const cFiber   = looks.add(uniforms.uFiber, 'value', 0, 1, 0.001).name('paperFiber');
-registerAuto(looks, cFiber, 'paperFiber', () => uniforms.uFiber.value, v => uniforms.uFiber.value = v, 0, 1, {});
-
+registerAuto(cFiber, 'paperFiber', () => uniforms.uFiber.value, v => uniforms.uFiber.value = v, 0, 1, {});
 const cEdge    = looks.add(uniforms.uEdgeGlow, 'value', 0.0, 2.0, 0.01).name('edgeGlow');
-registerAuto(looks, cEdge, 'edgeGlow', () => uniforms.uEdgeGlow.value, v => uniforms.uEdgeGlow.value = v, 0.0, 2.0, {});
+registerAuto(cEdge, 'edgeGlow', () => uniforms.uEdgeGlow.value, v => uniforms.uEdgeGlow.value = v, 0.0, 2.0, {});
+const cBloomS  = looks.add(bloom, 'strength', 0.0, 2.5, 0.01).name('bloomStrength');
+registerAuto(cBloomS, 'bloomStrength', () => bloom.strength, v => (bloom.strength = v), 0.0, 2.5, {});
+const cBloomR  = looks.add(bloom, 'radius', 0.0, 1.5, 0.01).name('bloomRadius');
+registerAuto(cBloomR, 'bloomRadius', () => bloom.radius, v => (bloom.radius = v), 0.0, 1.5, {});
+
+// NEW: Texture Brightness & Contrast (+Auto)
+const cBright  = looks.add(uniforms.uBrightness, 'value', -1.0, 1.0, 0.001).name('brightness');
+registerAuto(cBright, 'brightness', () => uniforms.uBrightness.value, v => (uniforms.uBrightness.value = v), -1.0, 1.0, {});
+const cContr   = looks.add(uniforms.uContrast, 'value', -1.0, 1.0, 0.001).name('contrast');
+registerAuto(cContr, 'contrast',   () => uniforms.uContrast.value,   v => (uniforms.uContrast.value = v),   -1.0, 1.0, {});
 
 // Texture Type dropdown
 const texState = { kind: 'Kaleido (UV)' };
@@ -652,41 +663,34 @@ texCtrl.onChange(v => {
   uniforms.uTexKind.value = (v.startsWith('Kaleido') ? 0 : (v.startsWith('Perlin') ? 1 : 2));
 });
 
-// Texture Scale (midpoint → ×1), with Auto
+// Texture Scale (midpoint → ×1). Expose 0..1 slider and map exponentially to ×0.25..×4
 const texScaleState = { scale01: 0.5 };
 const cTexScale = looks.add(texScaleState, 'scale01', 0, 1, 0.001).name('textureScale (×0.25…×4)');
 function applyTexScaleFrom01(x01){ uniforms.uTexScale.value = Math.pow(2, (x01 - 0.5) * 4.0); }
 cTexScale.onChange(v => applyTexScaleFrom01(v));
 applyTexScaleFrom01(texScaleState.scale01);
-registerAuto(looks, cTexScale, 'textureScale', () => texScaleState.scale01, v => { texScaleState.scale01 = v; applyTexScaleFrom01(v); }, 0, 1, {});
+registerAuto(cTexScale, 'textureScale', () => texScaleState.scale01, v => { texScaleState.scale01 = v; applyTexScaleFrom01(v); }, 0, 1, {});
 
-// Texture Evolution (0..1), with Auto
-const cEvo = looks.add(uniforms.uTexEvolution, 'value', 0, 1, 0.001).name('textureEvolution');
-registerAuto(looks, cEvo, 'textureEvolution', () => uniforms.uTexEvolution.value, v => uniforms.uTexEvolution.value = v, 0, 1, {});
+// NEW: Texture Evolution (+Auto) — affects all texture modes
+const cEvo = looks.add(uniforms.uTexEvo, 'value', -10.0, 10.0, 0.001).name('textureEvolution');
+registerAuto(cEvo, 'textureEvolution', () => uniforms.uTexEvo.value, v => (uniforms.uTexEvo.value = v), -10.0, 10.0, {});
 
-// Brightness (-1..1) & Contrast (0..2), with Auto
-const cBright = looks.add(uniforms.uBrightness, 'value', -1.0, 1.0, 0.001).name('brightness');
-registerAuto(looks, cBright, 'brightness', () => uniforms.uBrightness.value, v => uniforms.uBrightness.value = v, -1.0, 1.0, {});
-const cContrast = looks.add(uniforms.uContrast, 'value', 0.0, 2.0, 0.001).name('contrast');
-registerAuto(looks, cContrast, 'contrast', () => uniforms.uContrast.value, v => uniforms.uContrast.value = v, 0.0, 2.0, {});
-
-looks.open();
-
-// Motion controls (+ Auto)
-const motionParams = {
-  spinRate: 0.0,         // deg/s
-  floatAmp: 0.12,        // units
-  floatFreq: 0.3,        // Hz
-  baseY: 0.0
+// ---------- NEW: Object controls (Spin / Float) ----------
+const obj = gui.addFolder('Object');
+const objState = {
+  spinRate: 0.0,      // turns per second
+  floatAmp: 0.0,      // units
+  floatSpeed: 0.5,    // Hz (cycles per second)
+  floatOffset: 0.0    // base Y
 };
-const motion = gui.addFolder('Motion');
-const cSpin  = motion.add(motionParams, 'spinRate', -240, 240, 0.1).name('spinRate (deg/s)');
-registerAuto(motion, cSpin, 'spinRate', () => motionParams.spinRate, v => motionParams.spinRate = v, -240, 240, { rate: 180 });
-const cFAmp  = motion.add(motionParams, 'floatAmp', 0.0, 0.6, 0.001).name('floatAmp');
-registerAuto(motion, cFAmp, 'floatAmp', () => motionParams.floatAmp, v => motionParams.floatAmp = v, 0.0, 0.6, {});
-const cFFreq = motion.add(motionParams, 'floatFreq', 0.05, 2.0, 0.001).name('floatFreq (Hz)');
-registerAuto(motion, cFFreq, 'floatFreq', () => motionParams.floatFreq, v => motionParams.floatFreq = v, 0.05, 2.0, {});
-motion.open();
+const cSpin   = obj.add(objState, 'spinRate', -2.0, 2.0, 0.001).name('spin (turns/s)');
+registerAutoIn(obj, cSpin, 'spin (turns/s)', () => objState.spinRate, v => (objState.spinRate = v), -2.0, 2.0, {});
+const cFAmp   = obj.add(objState, 'floatAmp', 0.0, 1.0, 0.001).name('floatAmplitude');
+registerAutoIn(obj, cFAmp, 'floatAmplitude', () => objState.floatAmp, v => (objState.floatAmp = v), 0.0, 1.0, {});
+const cFSpeed = obj.add(objState, 'floatSpeed', 0.0, 2.0, 0.001).name('floatSpeed (Hz)');
+registerAutoIn(obj, cFSpeed, 'floatSpeed (Hz)', () => objState.floatSpeed, v => (objState.floatSpeed = v), 0.0, 2.0, {});
+const cFBase  = obj.add(objState, 'floatOffset', -1.0, 1.0, 0.001).name('floatOffsetY');
+registerAutoIn(obj, cFBase, 'floatOffsetY', () => objState.floatOffset, v => (objState.floatOffset = v), -1.0, 1.0, {});
 
 // ---------- Presets (2 total) ----------
 function preset_half_vertical_valley(){
@@ -808,15 +812,14 @@ function tick(t){
 
   const speedMul = Math.max(0.2, Math.min(5, Math.pow(5, (parseFloat(speed.value || '0.5') - 0.5) * 2.0)));
 
-  // autos
   updateProgressAuto(dt, speedMul);
-  updateAutos(dt, speedMul);
+  updateLookAutos(dt, speedMul);
 
-  // apply motion
-  sheet.rotation.y += THREE.MathUtils.degToRad(motionParams.spinRate) * dt * speedMul;
-  sheet.position.y = motionParams.baseY + Math.sin(2*Math.PI * motionParams.floatFreq * (uniforms.uTime.value) * speedMul) * motionParams.floatAmp;
+  // NEW: object spin & float (subject to Speed multiplier)
+  sheet.rotation.y += (Math.PI * 2.0) * objState.spinRate * dt * speedMul;
+  const tAuto = uniforms.uTime.value * speedMul;
+  sheet.position.y = objState.floatOffset + Math.sin(2.0 * Math.PI * objState.floatSpeed * tAuto) * objState.floatAmp;
 
-  // fold + render
   updateFolding();
   controls.update();
   composer.render();
@@ -831,3 +834,6 @@ window.addEventListener('resize', () => {
   renderer.setSize(w, h); composer.setSize(w, h);
   fxaa.material.uniforms.resolution.value.set(1 / w, 1 / h);
 });
+
+// ---------- Conventions ----------
+/* valley = +°, mountain = −°. */
