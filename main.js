@@ -443,7 +443,7 @@ const uniforms = {
   // Look / texture
   uSectors:    { value: 10.0 },
   uHueShift:   { value: 0.0 },
-  uIridescence:{ value: 0.65 },
+  uIridescence:{ value: 0.0 },
   uFilmIOR:    { value: 1.35 },
   uFilmNm:     { value: 360.0 },
   uFiber:      { value: 0.35 },
@@ -838,4 +838,5 @@ window.addEventListener('resize', () => {
 
 // ---------- Conventions ----------
 /* valley = +°, mountain = −°. */
+
 
