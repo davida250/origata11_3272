@@ -628,23 +628,25 @@ function rebuildSheetGeometry(){
 // ---------- GUI: Look controls + Auto oscillators ----------
 const gui = new GUI();
 const looks  = gui.addFolder('Look');
-const autos  = []; // { get,set,min,max,rate,dir,on,ctrl,label,integer }
+const autos  = []; // { get,set,min,max,rate,dir,on,ctrl,label,integer,autoCtrl }
 function registerAuto(ctrl, label, get, set, min, max, { integer=false, rate=null }={}){
   const range = max - min;
-  const entry = { get, set, min, max, integer, dir:+1, rate: (rate ?? range/6), ctrl, on:false, label };
+  const entry = { get, set, min, max, integer, dir:+1, rate: (rate ?? range/6), ctrl, on:false, label, autoCtrl:null };
   const autoState = { Auto:false };
   const autoCtrl  = looks.add(autoState, 'Auto').name(label + ' Auto');
   autoCtrl.onChange(v => entry.on = !!v);
+  entry.autoCtrl = autoCtrl;
   autos.push(entry);
   return entry;
 }
 // same as registerAuto but adds the Auto toggle into a specific folder (used for Object)
 function registerAutoIn(folder, ctrl, label, get, set, min, max, { integer=false, rate=null }={}){
   const range = max - min;
-  const entry = { get, set, min, max, integer, dir:+1, rate: (rate ?? range/6), ctrl, on:false, label };
+  const entry = { get, set, min, max, integer, dir:+1, rate: (rate ?? range/6), ctrl, on:false, label, autoCtrl:null };
   const autoState = { Auto:false };
   const autoCtrl  = folder.add(autoState, 'Auto').name(label + ' Auto');
   autoCtrl.onChange(v => entry.on = !!v);
+  entry.autoCtrl = autoCtrl;
   autos.push(entry);
   return entry;
 }
@@ -759,6 +761,208 @@ const speed     = document.getElementById('speed');
 const easingSel = document.getElementById('easing');
 const stepInfo  = document.getElementById('stepInfo');
 
+// ---------- NEW: User Presets UI (upper-left) ----------
+const userPresetsSel = document.getElementById('userPresets');
+const btnSaveUserPreset = document.getElementById('btnSaveUserPreset');
+const btnLoadUserPreset = document.getElementById('btnLoadUserPreset');
+const btnDeleteUserPreset = document.getElementById('btnDeleteUserPreset');
+const saveModal = document.getElementById('saveModal');
+const presetNameInput = document.getElementById('presetNameInput');
+const btnSaveConfirm = document.getElementById('saveModalConfirm');
+const btnSaveCancel = document.getElementById('saveModalCancel');
+
+// ---------- NEW: Preset persistence (OPFS with localStorage fallback) ----------
+const PresetStore = (() => {
+  const FILE = 'presets.json';
+  let backend = 'localStorage';
+  let handle = null;
+  let mem = { version: 1, presets: [] }; // { name, createdAt, updatedAt, state }
+
+  async function init(){
+    if (navigator.storage?.getDirectory){
+      try {
+        const root = await navigator.storage.getDirectory();
+        handle = await root.getFileHandle(FILE, { create: true });
+        backend = 'opfs';
+        const file = await handle.getFile();
+        const text = await file.text();
+        if (text.trim()) mem = JSON.parse(text);
+        if (!mem || !Array.isArray(mem.presets)) mem = { version:1, presets:[] };
+      } catch { backend = 'localStorage'; }
+    }
+    if (backend === 'localStorage'){
+      try {
+        const t = localStorage.getItem('origata.presets.json');
+        if (t) mem = JSON.parse(t);
+        if (!mem || !Array.isArray(mem.presets)) mem = { version:1, presets:[] };
+      } catch { mem = { version:1, presets:[] }; }
+    }
+  }
+  async function save(){
+    const text = JSON.stringify(mem, null, 2);
+    if (backend === 'opfs' && handle){
+      const w = await handle.createWritable();
+      await w.write(text); await w.close();
+    } else {
+      localStorage.setItem('origata.presets.json', text);
+    }
+  }
+  function upsert(p){
+    const i = mem.presets.findIndex(x => x.name === p.name);
+    if (i >= 0) mem.presets[i] = p; else mem.presets.push(p);
+  }
+  function remove(name){
+    const n0 = mem.presets.length;
+    mem.presets = mem.presets.filter(p => p.name !== name);
+    return mem.presets.length !== n0;
+  }
+  function exists(name){ return mem.presets.some(p => p.name === name); }
+  function list(){ return mem.presets.slice().sort((a,b) => a.name.localeCompare(b.name)); }
+  return { init, save, upsert, remove, exists, list };
+})();
+
+// ---------- NEW: Collect / Apply preset state ----------
+function collectCurrentState(){
+  return {
+    modelId: presetSel.value,
+    progress: drive.progress,
+    animate: drive.animate,
+    easing: drive.easing,
+    speed01: parseFloat(speed.value || '0.5'),
+    look: {
+      sectors: uniforms.uSectors.value,
+      hueShift: uniforms.uHueShift.value,
+      iridescence: uniforms.uIridescence.value,
+      filmIOR: uniforms.uFilmIOR.value,
+      filmNm: uniforms.uFilmNm.value,
+      fiber: uniforms.uFiber.value,
+      edgeGlow: uniforms.uEdgeGlow.value,
+      brightness: uniforms.uBrightness.value,
+      contrast: uniforms.uContrast.value,
+      textureType: texState.kind,
+      textureScale01: texScaleState.scale01,
+      textureEvolution: uniforms.uTexEvo.value,
+      bloomStrength: bloom.strength,
+      bloomRadius: bloom.radius
+    },
+    object: {
+      spinRate: objState.spinRate,
+      floatAmp: objState.floatAmp,
+      floatSpeed: objState.floatSpeed,
+      floatOffset: objState.floatOffset
+    },
+    autos: autos.map(a => ({ label: a.label, on: !!a.on }))
+  };
+}
+
+function applyState(state){
+  if (!state) return;
+  // Geometry / model
+  if (state.modelId){
+    presetSel.value = state.modelId;
+    btnApply.click();
+  }
+  // Easing + speed + progress + animate
+  if (state.easing){ easingSel.value = state.easing; drive.easing = state.easing; }
+  if (typeof state.speed01 === 'number') speed.value = String(state.speed01);
+  if (typeof state.progress === 'number'){ setProgress(state.progress); updateStepInfo(); }
+  if (typeof state.animate === 'boolean'){ drive.animate = state.animate; btnAnim.textContent = drive.animate ? 'Pause' : 'Play'; }
+
+  // Look (use controllers to keep GUI in sync)
+  const L = state.look || {};
+  if (typeof L.sectors === 'number') cSectors.setValue(L.sectors);
+  if (typeof L.hueShift === 'number') cHue.setValue(L.hueShift);
+  if (typeof L.iridescence === 'number') cIri.setValue(L.iridescence);
+  if (typeof L.filmIOR === 'number') cIOR.setValue(L.filmIOR);
+  if (typeof L.filmNm === 'number') cNm.setValue(L.filmNm);
+  if (typeof L.fiber === 'number') cFiber.setValue(L.fiber);
+  if (typeof L.edgeGlow === 'number') cEdge.setValue(L.edgeGlow);
+  if (typeof L.brightness === 'number') cBright.setValue(L.brightness);
+  if (typeof L.contrast === 'number') cContr.setValue(L.contrast);
+  if (typeof L.textureType === 'string') texCtrl.setValue(L.textureType); // triggers video play if Movie
+  if (typeof L.textureScale01 === 'number') cTexScale.setValue(L.textureScale01);
+  if (typeof L.textureEvolution === 'number') cEvo.setValue(L.textureEvolution);
+  if (typeof L.bloomStrength === 'number') cBloomS.setValue(L.bloomStrength);
+  if (typeof L.bloomRadius === 'number') cBloomR.setValue(L.bloomRadius);
+
+  // Object
+  const O = state.object || {};
+  if (typeof O.spinRate === 'number') cSpin.setValue(O.spinRate);
+  if (typeof O.floatAmp === 'number') cFAmp.setValue(O.floatAmp);
+  if (typeof O.floatSpeed === 'number') cFSpeed.setValue(O.floatSpeed);
+  if (typeof O.floatOffset === 'number') cFBase.setValue(O.floatOffset);
+
+  // Autos
+  const A = state.autos || [];
+  for (const a of autos){
+    const saved = A.find(x => x.label === a.label);
+    if (saved && a.autoCtrl){
+      a.autoCtrl.setValue(!!saved.on); // updates a.on via onChange
+    }
+  }
+}
+
+// ---------- NEW: Presets UI wiring ----------
+async function initUserPresetsUI(){
+  if (!userPresetsSel) return;
+  await PresetStore.init();
+  const refreshList = (selectName=null) => {
+    userPresetsSel.innerHTML = '';
+    for (const p of PresetStore.list()){
+      const opt = document.createElement('option');
+      opt.value = p.name; opt.textContent = p.name;
+      userPresetsSel.appendChild(opt);
+    }
+    if (selectName){
+      const found = Array.from(userPresetsSel.options).find(o => o.value === selectName);
+      if (found) userPresetsSel.value = selectName;
+    }
+  };
+  const showModal = (defName='') => {
+    presetNameInput.value = defName;
+    saveModal.classList.remove('hidden');
+    presetNameInput.focus(); presetNameInput.select();
+  };
+  const hideModal = () => saveModal.classList.add('hidden');
+
+  refreshList();
+
+  btnSaveUserPreset?.addEventListener('click', () => showModal());
+  btnSaveCancel?.addEventListener('click', hideModal);
+  saveModal?.addEventListener('click', (e) => { if (e.target === saveModal) hideModal(); });
+  presetNameInput?.addEventListener('keydown', (e) => { if (e.key === 'Enter') btnSaveConfirm.click(); if (e.key === 'Escape') hideModal(); });
+  btnSaveConfirm?.addEventListener('click', async () => {
+    const name = (presetNameInput.value || '').trim();
+    if (!name) return;
+    if (PresetStore.exists(name)){
+      const ok = confirm(`Preset "${name}" exists. Overwrite?`);
+      if (!ok) return;
+    }
+    const state = collectCurrentState();
+    const now = new Date().toISOString();
+    PresetStore.upsert({ name, createdAt: now, updatedAt: now, state });
+    await PresetStore.save();
+    hideModal();
+    refreshList(name);
+  });
+  btnLoadUserPreset?.addEventListener('click', () => {
+    const name = userPresetsSel.value;
+    const p = PresetStore.list().find(x => x.name === name);
+    if (p) applyState(p.state);
+  });
+  userPresetsSel?.addEventListener('dblclick', () => btnLoadUserPreset.click());
+  btnDeleteUserPreset?.addEventListener('click', async () => {
+    const name = userPresetsSel.value;
+    if (!name) return;
+    const ok = confirm(`Delete preset "${name}"? This cannot be undone.`);
+    if (!ok) return;
+    if (PresetStore.remove(name)){
+      await PresetStore.save();
+      refreshList();
+    }
+  });
+}
+
 function setProgress(p){ drive.progress = clamp01(p); progress.value = String(drive.progress.toFixed(3)); }
 function currentStepIndex(){
   const cps = drive.checkpoints;
@@ -827,6 +1031,8 @@ btnSnap.onclick = () => {
 presetSel.value = 'half-vertical-valley';
 btnApply.click();
 progress.value = String(drive.progress);
+// Initialize user presets (async, non-blocking)
+initUserPresetsUI();
 
 // ---------- Per-frame update ----------
 function updateFolding(){
@@ -875,5 +1081,3 @@ window.addEventListener('resize', () => {
 
 // ---------- Conventions ----------
 /* valley = +°, mountain = −°. */
-
-
