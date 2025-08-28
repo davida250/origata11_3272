@@ -1,12 +1,13 @@
 /**
- * Origata v0.30 — Rigid‑hinge origami with UV‑space textures & motion
+ * Origata v0.31 — Rigid‑hinge origami with UV‑space textures & motion
  * - Presets: Book Fold (default), Gate Fold.
  * - Texture Type: Kaleido (UV), Perlin/FBM, Fractal (Julia).
- * - New sliders (all with Auto options): brightness, contrast, textureScale, textureEvolution.
- * - Back face uses the *same* texture with +0.5 hue shift (distinct back color).
- * - Motion folder: spin rate (deg/s), float amplitude & frequency — with Auto.
+ * - Sliders (each with Auto): brightness, contrast, textureScale, textureEvolution.
+ * - Back face uses same texture with +0.5 hue shift (distinct back).
+ * - Motion: spin rate (deg/s), float amplitude/frequency — with Auto.
  * - Global Speed slider multiplies *all* auto motions (×0.2 … ×5).
  * - Mesh is cut along crease lines for crisp hinges.
+ * - Safer shader uniform sizes (MAX_CREASES=24, MAX_MASKS_PER=2) to avoid GPU limits.
  */
 
 import * as THREE from 'three';
@@ -56,7 +57,7 @@ const VALLEY = +1, MOUNTAIN = -1;
 const tmp = { v: new THREE.Vector3() };
 function signedDistance2(p /*Vec2|Vec3*/, a /*Vec3*/, d /*unit Vec3*/) {
   const px = p.x - a.x, py = p.y - a.y;
-  return d.x * py - d.y * px; // z-component of 2D cross
+  return d.x * py - d.y * px;
 }
 function rotatePointAroundLine(p, a, axisUnit, ang) {
   tmp.v.copy(p).sub(a).applyAxisAngle(axisUnit, ang).add(a);
@@ -72,20 +73,20 @@ const Easings = {
 };
 
 // ---------- Creases + MASKS + Timeline ----------
-const MAX_CREASES = 48;
-const MAX_MASKS_PER = 4;
+const MAX_CREASES = 24;
+const MAX_MASKS_PER = 2;
 
 const base = {
   count: 0,
   A: Array.from({ length: MAX_CREASES }, () => new THREE.Vector3()),
   D: Array.from({ length: MAX_CREASES }, () => new THREE.Vector3(1,0,0)),
-  amp:  new Array(MAX_CREASES).fill(0),      // |angle| in radians
-  sign: new Array(MAX_CREASES).fill(1),      // +1=valley, -1=mountain
+  amp:  new Array(MAX_CREASES).fill(0),
+  sign: new Array(MAX_CREASES).fill(1),
   mCount: new Array(MAX_CREASES).fill(0),
   mA:  Array.from({ length: MAX_CREASES }, () => Array.from({ length: MAX_MASKS_PER }, () => new THREE.Vector3())),
   mD:  Array.from({ length: MAX_CREASES }, () => Array.from({ length: MAX_MASKS_PER }, () => new THREE.Vector3(1,0,0))),
-  t0:  new Array(MAX_CREASES).fill(-1),      // start time in [0..1], −1 = sequential default
-  t1:  new Array(MAX_CREASES).fill(-1)       // end time
+  t0:  new Array(MAX_CREASES).fill(-1),
+  t1:  new Array(MAX_CREASES).fill(-1)
 };
 function resetBase(){
   base.count = 0;
@@ -126,17 +127,16 @@ const eff = {
 
 // ---------- Drive (global) ----------
 const drive = {
-  animate:false,       // ping-pong 0↔1
-  baseSpeed:0.25,      // progress units per second *before* multiplier
-  progress:0.0,        // global progress across timeline
+  animate:false,
+  baseSpeed:0.25,
+  progress:0.0,
   easing:'smoothstep',
   dir:+1,
   stepCount:1,
   checkpoints:[0,1]
 };
 function speedMultiplierFromSlider(x01){
-  // map [0..1] → [1/5 .. 5], mid=1 (exponential for symmetric perception)
-  return Math.pow(5, (x01 - 0.5) * 2.0);
+  return Math.pow(5, (x01 - 0.5) * 2.0); // [0..1] → [0.2..5]
 }
 
 // Build checkpoints from unique t0s (+0 and 1) for Step Prev/Next UI
@@ -173,7 +173,6 @@ function computeAngles(){
 
 // propagate axes and mask lines by earlier folds (crisp hinge: only + side moves)
 function computeEffectiveFrames(){
-  // base copy
   for (let i=0;i<base.count;i++){
     eff.A[i].copy(base.A[i]); eff.D[i].copy(base.D[i]).normalize();
     for (let m=0;m<MAX_MASKS_PER;m++){
@@ -181,7 +180,6 @@ function computeEffectiveFrames(){
       eff.mD[i][m].copy(base.mD[i][m]).normalize();
     }
   }
-  // sequentially rotate future creases & their masks
   for (let j=0;j<base.count;j++){
     const Aj = eff.A[j]; const Dj = eff.D[j].clone().normalize();
     const ang = eff.ang[j]; if (Math.abs(ang) < 1e-7) continue;
@@ -250,10 +248,8 @@ const vs = /* glsl */`
 
     for (int i=0; i<MAX_CREASES; i++){
       if (i >= uCreaseCount) break;
-
       vec3 a = uAeff[i];
       vec3 d = normalize(uDeff[i]);
-
       float sd = signedDistanceToLine(p.xy, a.xy, d.xy);
       if (sd > 0.0 && inMask(i, p.xy)){
         p = rotateAroundLine(p, a, d, uAng[i]);
@@ -340,7 +336,6 @@ const fs = /* glsl */`
   float evoAmp(){ return mix(0.8, 2.8, clamp(uTexEvolution,0.0,1.0)); }
 
   vec3 tex_kaleido(vec2 uv){
-    // UV-centered polar kaleidoscope; uv in [-0.5,0.5]
     vec2 c = uv * uTexScale;
     float theta = atan(c.y, c.x);
     float r = length(c);
@@ -366,7 +361,6 @@ const fs = /* glsl */`
     return mix(col, vec3(s), 0.15);
   }
   vec3 tex_fractal(vec2 uv){
-    // Julia set (animated c), centered uv * uTexScale
     vec2 z = uv * (uTexScale*2.2);
     float t = evoSpeed() * uTime;
     vec2 c = 0.5*mix(0.6, 1.1, uTexEvolution) * vec2(sin(0.31*t), cos(0.23*t));
@@ -386,13 +380,11 @@ const fs = /* glsl */`
   }
 
   vec3 applyBC(vec3 col){
-    // Adjust contrast around mid-gray (0.5), then add brightness
     col = (col - 0.5) * uContrast + 0.5 + uBrightness;
     return clamp(col, 0.0, 1.0);
   }
 
   void main(){
-    // UV in [-0.5,0.5]
     vec2 uv = vUv - 0.5;
 
     vec3 baseCol;
@@ -400,10 +392,9 @@ const fs = /* glsl */`
     else if (uTexKind == 1) baseCol = tex_perlin(uv);
     else baseCol = tex_fractal(uv);
 
-    // brightness/contrast on the texture
     baseCol = applyBC(baseCol);
 
-    // paper fiber + grain (anchored to surface space)
+    // paper fiber + grain
     float fiberLines = 0.0;
     {
       float warp = fbm(vUv*4.0 + vec2(0.2*uTime, -0.1*uTime));
@@ -421,7 +412,7 @@ const fs = /* glsl */`
       baseCol = hsv2rgb(hsv);
     }
 
-    // crease glow (distance in local plane)
+    // crease glow
     float minD = 1e9;
     for (int i=0; i<MAX_CREASES; i++){
       if (i >= uCreaseCount) break;
@@ -515,7 +506,6 @@ scene.add(new THREE.Mesh(
 
 // Build a plane subdivided into BASE_SEG, then cut along crease lines
 function buildCutSheetGeometry(size, seg, lines /* {A:Vec3, D:Vec3}[] */){
-  // Base grid → non-indexed triangles
   const tris = [];
   for (let iy=0; iy<seg; iy++){
     const v0 = -0.5 + iy/seg, v1 = -0.5 + (iy+1)/seg;
@@ -523,12 +513,10 @@ function buildCutSheetGeometry(size, seg, lines /* {A:Vec3, D:Vec3}[] */){
     for (let ix=0; ix<seg; ix++){
       const u0 = -0.5 + ix/seg, u1 = -0.5 + (ix+1)/seg;
       const x0 = u0 * size, x1 = u1 * size;
-      // tri A
       tris.push({
         p:[ new THREE.Vector3(x0,y0,0), new THREE.Vector3(x1,y0,0), new THREE.Vector3(x1,y1,0) ],
         uv:[ new THREE.Vector2(u0+0.5, v0+0.5), new THREE.Vector2(u1+0.5, v0+0.5), new THREE.Vector2(u1+0.5, v1+0.5) ]
       });
-      // tri B
       tris.push({
         p:[ new THREE.Vector3(x0,y0,0), new THREE.Vector3(x1,y1,0), new THREE.Vector3(x0,y1,0) ],
         uv:[ new THREE.Vector2(u0+0.5, v0+0.5), new THREE.Vector2(u1+0.5, v1+0.5), new THREE.Vector2(u0+0.5, v1+0.5) ]
@@ -606,7 +594,7 @@ function rebuildSheetGeometry(){
   sheet.geometry = g;
 }
 
-// ---------- Auto helpers (folder-aware) ----------
+// ---------- Auto helpers ----------
 const autos = []; // { get,set,min,max,rate,dir,on,ctrl,label,integer }
 function registerAuto(folder, ctrl, label, get, set, min, max, { integer=false, rate=null }={}){
   const range = max - min;
@@ -635,7 +623,7 @@ const gui   = new GUI();
 const looks = gui.addFolder('Look');
 const motion= gui.addFolder('Motion');
 
-// Look sliders (+ Auto)
+// Look sliders (+ Auto, including kaleido sectors)
 const cSectors = looks.add(uniforms.uSectors, 'value', 3, 24, 1).name('kaleidoSectors');
 registerAuto(looks, cSectors, 'kaleidoSectors', () => uniforms.uSectors.value, v => uniforms.uSectors.value = v, 3, 24, { integer:true });
 
@@ -691,6 +679,7 @@ const motionParams = {
   floatFreq: 0.3,        // Hz
   baseY: 0.0
 };
+const motion = gui.addFolder('Motion');
 const cSpin  = motion.add(motionParams, 'spinRate', -240, 240, 0.1).name('spinRate (deg/s)');
 registerAuto(motion, cSpin, 'spinRate', () => motionParams.spinRate, v => motionParams.spinRate = v, -240, 240, { rate: 180 });
 const cFAmp  = motion.add(motionParams, 'floatAmp', 0.0, 0.6, 0.001).name('floatAmp');
@@ -842,6 +831,3 @@ window.addEventListener('resize', () => {
   renderer.setSize(w, h); composer.setSize(w, h);
   fxaa.material.uniforms.resolution.value.set(1 / w, 1 / h);
 });
-
-// ---------- Conventions ----------
-/* valley = +°, mountain = −°. */
