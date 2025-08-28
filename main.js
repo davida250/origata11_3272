@@ -445,9 +445,10 @@ const fs = /* glsl */`
       float sd = sdLine(vLocal.xy, a2, d2);
       minD = min(minD, sd);
     }
+    // Keep AA distance calculation active (prevents some drivers from
+    // optimizing away derivative usage / varyings).
     float aa = fwidth(minD);
-    // thinner fold lines
-    float edge = 1.0 - smoothstep(0.0012, 0.0012 + aa, minD);
+    float edge = 1.0 - smoothstep(0.0025, 0.0025 + aa, minD); // computed but not used
 
     // iridescence
     vec3 V = normalize(cameraPosition - vPos);
@@ -458,7 +459,7 @@ const fs = /* glsl */`
     float F = pow(1.0 - cosT, 5.0);
     vec3 col = mix(baseCol, mix(baseCol, film, uIridescence), F);
 
-    col += uEdgeGlow * edge * film * 0.6;
+    // col += uEdgeGlow * edge * film * 0.6; // Disabled
 
     float vign = smoothstep(1.2, 0.2, length(vUv-0.5)*1.2);
     gl_FragColor = vec4(col*vign, 1.0);
