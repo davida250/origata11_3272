@@ -292,7 +292,7 @@ const fs = /* glsl */`
   // Look / texture
   uniform float uSectors, uHueShift;
   uniform float uIridescence, uFilmIOR, uFilmNm, uFiber, uEdgeGlow;
-  uniform int   uTexKind;         // 0=kaleido(UV) 1=perlin 2=fractal julia 3=movie
+  uniform int   uTexKind;         // 0=kaleido(UV) 1=perlin 2=fractal 3=movie
   uniform float uTexScale;        // 1.0 at slider midpoint (×0.25..×4 overall)
   uniform float uBrightness;      // [-1..+1] additive
   uniform float uContrast;        // [-1..+1] scale around 0.5
@@ -688,7 +688,7 @@ registerAuto(cContr, 'contrast',   () => uniforms.uContrast.value,   v => (unifo
 
 // Texture Type dropdown
 const texState = { kind: 'Kaleido (UV)' };
-const texCtrl  = looks.add(texState, 'kind', ['Kaleido (UV)', 'Perlin/FBM', 'Fractal (Julia)', 'Movie']).name('textureType');
+const texCtrl  = looks.add(texState, 'kind', ['Kaleido (UV)', 'Perlin', 'Fractal', 'Movie']).name('textureType');
 texCtrl.onChange(v => {
   if (v.startsWith('Kaleido'))      { uniforms.uTexKind.value = 0; videoEl.pause(); }
   else if (v.startsWith('Perlin'))  { uniforms.uTexKind.value = 1; videoEl.pause(); }
@@ -874,5 +874,6 @@ window.addEventListener('resize', () => {
 
 // ---------- Conventions ----------
 /* valley = +°, mountain = −°. */
+
 
 
