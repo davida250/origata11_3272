@@ -447,7 +447,7 @@ const fs = /* glsl */`
     }
     float aa = fwidth(minD);
     // thinner fold lines
-    float edge = 0.1 - smoothstep(0.0012, 0.0012 + aa, minD);
+    float edge = 1 - smoothstep(0.0012, 0.0012 + aa, minD);
 
     // iridescence
     vec3 V = normalize(cameraPosition - vPos);
@@ -874,6 +874,7 @@ window.addEventListener('resize', () => {
 
 // ---------- Conventions ----------
 /* valley = +°, mountain = −°. */
+
 
 
 
