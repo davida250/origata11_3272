@@ -48,6 +48,25 @@ const SIZE = 3.0;            // square sheet edge length
 const BASE_SEG = 48;         // base grid before cutting along creases
 const VALLEY = +1, MOUNTAIN = -1;
 
+
+// ---------- Video (Movie texture) ----------
+// Prewarm a looping, muted <video> and wrap it in a THREE.VideoTexture.
+// Playback will start only when the "Movie" texture is selected.
+const videoEl = document.createElement('video');
+videoEl.src = './origata.mp4';
+videoEl.loop = true;
+videoEl.muted = true;        // satisfies modern autoplay policies
+videoEl.playsInline = true;  // prevents fullscreen takeover on mobile
+videoEl.preload = 'auto';
+// Note: THREE.VideoTexture auto-updates as the <video> plays.
+const videoTex = new THREE.VideoTexture(videoEl);
+videoTex.colorSpace = THREE.SRGBColorSpace;
+videoTex.minFilter = THREE.LinearFilter;
+videoTex.magFilter = THREE.LinearFilter;
+videoTex.generateMipmaps = false;
+videoTex.wrapS = THREE.ClampToEdgeWrapping;
+videoTex.wrapT = THREE.ClampToEdgeWrapping;
+
 // ---------- Math helpers ----------
 const tmp = { v: new THREE.Vector3(), u: new THREE.Vector3() };
 function signedDistance2(p /*Vec2|Vec3*/, a /*Vec3*/, d /*unit Vec3*/) {
@@ -273,11 +292,12 @@ const fs = /* glsl */`
   // Look / texture
   uniform float uSectors, uHueShift;
   uniform float uIridescence, uFilmIOR, uFilmNm, uFiber, uEdgeGlow;
-  uniform int   uTexKind;         // 0=kaleido(UV) 1=perlin 2=fractal julia
+  uniform int   uTexKind;         // 0=kaleido(UV) 1=perlin 2=fractal julia 3=movie
   uniform float uTexScale;        // 1.0 at slider midpoint (×0.25..×4 overall)
   uniform float uBrightness;      // [-1..+1] additive
   uniform float uContrast;        // [-1..+1] scale around 0.5
   uniform float uTexEvo;          // evolution offset, added to uTime
+  uniform sampler2D uVidTex;      // video texture for "Movie"
 
   // Folds (for edge glow visual only)
   uniform int   uCreaseCount;
@@ -379,14 +399,21 @@ const fs = /* glsl */`
     return col;
   }
 
+  vec3 tex_movie(vec2 uv01){
+    // Sample the video in standard [0..1] UV space.
+    return texture2D(uVidTex, uv01).rgb;
+  }
+
+
   void main(){
     // UV in [-0.5,0.5]
     vec2 uv = vUv - 0.5;
 
     vec3 baseCol;
-    if (uTexKind == 0) baseCol = tex_kaleido(uv);
+    if (uTexKind == 0)      baseCol = tex_kaleido(uv);
     else if (uTexKind == 1) baseCol = tex_perlin(uv);
-    else baseCol = tex_fractal(uv);
+    else if (uTexKind == 2) baseCol = tex_fractal(uv);
+    else                    baseCol = tex_movie(vUv);
 
     // brightness/contrast on the texture color (pre‑paper/film)
     baseCol = applyBC(baseCol, uBrightness, uContrast);
@@ -419,7 +446,8 @@ const fs = /* glsl */`
       minD = min(minD, sd);
     }
     float aa = fwidth(minD);
-    float edge = 1.0 - smoothstep(0.0025, 0.0025 + aa, minD);
+    // thinner fold lines
+    float edge = 1.0 - smoothstep(0.0012, 0.0012 + aa, minD);
 
     // iridescence
     vec3 V = normalize(cameraPosition - vPos);
@@ -453,6 +481,7 @@ const uniforms = {
   uBrightness: { value: 0.0 },   // new
   uContrast:   { value: 0.0 },   // new
   uTexEvo:     { value: 0.0 },   // new
+  uVidTex:     { value: videoTex }, // movie texture
 
   // Folding data
   uCreaseCount: { value: 0 },
@@ -659,9 +688,16 @@ registerAuto(cContr, 'contrast',   () => uniforms.uContrast.value,   v => (unifo
 
 // Texture Type dropdown
 const texState = { kind: 'Kaleido (UV)' };
-const texCtrl  = looks.add(texState, 'kind', ['Kaleido (UV)', 'Perlin/FBM', 'Fractal (Julia)']).name('textureType');
+const texCtrl  = looks.add(texState, 'kind', ['Kaleido (UV)', 'Perlin/FBM', 'Fractal (Julia)', 'Movie']).name('textureType');
 texCtrl.onChange(v => {
-  uniforms.uTexKind.value = (v.startsWith('Kaleido') ? 0 : (v.startsWith('Perlin') ? 1 : 2));
+  if (v.startsWith('Kaleido'))      { uniforms.uTexKind.value = 0; videoEl.pause(); }
+  else if (v.startsWith('Perlin'))  { uniforms.uTexKind.value = 1; videoEl.pause(); }
+  else if (v.startsWith('Fractal')) { uniforms.uTexKind.value = 2; videoEl.pause(); }
+  else { // Movie
+    uniforms.uTexKind.value = 3;
+    // Start playback (user-initiated via GUI change, satisfies autoplay policies).
+    videoEl.play().catch(() => {/* ignore; user can interact again if blocked */});
+  }
 });
 
 // Texture Scale (midpoint → ×1). Expose 0..1 slider and map exponentially to ×0.25..×4
