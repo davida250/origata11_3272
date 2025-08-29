@@ -104,6 +104,214 @@
           }
         ]
       }
+    },
+    {
+      "name": "K_1",
+      "createdAt": "2025-08-29T00:55:54.385Z",
+      "updatedAt": "2025-08-29T00:55:54.385Z",
+      "state": {
+        "modelId": "half-vertical-valley",
+        "progress": 0,
+        "animate": false,
+        "easing": "smoothstep",
+        "speed01": 0.5,
+        "look": {
+          "sectors": 20,
+          "hueShift": 0.417,
+          "iridescence": 0.466,
+          "filmIOR": 1.114,
+          "filmNm": 573,
+          "fiber": 0.515,
+          "edgeGlow": 0.34,
+          "brightness": 0,
+          "contrast": 0,
+          "textureType": "Kaleido (UV)",
+          "textureScale01": 0.207,
+          "textureEvolution": -5.101,
+          "bloomStrength": 0.83,
+          "bloomRadius": 0.6
+        },
+        "object": {
+          "spinRate": -0.0859999999999999,
+          "floatAmp": 0,
+          "floatSpeed": 0.5,
+          "floatOffset": 0
+        },
+        "autos": [
+          {
+            "label": "kaleidoSectors",
+            "on": false
+          },
+          {
+            "label": "hueShift",
+            "on": false
+          },
+          {
+            "label": "iridescence",
+            "on": false
+          },
+          {
+            "label": "filmIOR",
+            "on": false
+          },
+          {
+            "label": "filmThickness(nm)",
+            "on": false
+          },
+          {
+            "label": "paperFiber",
+            "on": false
+          },
+          {
+            "label": "edgeGlow",
+            "on": false
+          },
+          {
+            "label": "bloomStrength",
+            "on": false
+          },
+          {
+            "label": "bloomRadius",
+            "on": false
+          },
+          {
+            "label": "brightness",
+            "on": false
+          },
+          {
+            "label": "contrast",
+            "on": false
+          },
+          {
+            "label": "textureScale",
+            "on": false
+          },
+          {
+            "label": "textureEvolution",
+            "on": false
+          },
+          {
+            "label": "spin (turns/s)",
+            "on": false
+          },
+          {
+            "label": "floatAmplitude",
+            "on": false
+          },
+          {
+            "label": "floatSpeed (Hz)",
+            "on": false
+          },
+          {
+            "label": "floatOffsetY",
+            "on": false
+          }
+        ]
+      }
+    },
+    {
+      "name": "Sun_02",
+      "createdAt": "2025-08-29T01:03:01.097Z",
+      "updatedAt": "2025-08-29T01:03:01.097Z",
+      "state": {
+        "modelId": "half-vertical-valley",
+        "progress": 0,
+        "animate": false,
+        "easing": "smoothstep",
+        "speed01": 0.5,
+        "look": {
+          "sectors": 10,
+          "hueShift": 0.331,
+          "iridescence": 0,
+          "filmIOR": 1.35,
+          "filmNm": 360,
+          "fiber": 0.35,
+          "edgeGlow": 0.8,
+          "brightness": -0.387,
+          "contrast": 0.375,
+          "textureType": "Perlin/FBM",
+          "textureScale01": 0.5,
+          "textureEvolution": -6.576,
+          "bloomStrength": 0.86,
+          "bloomRadius": 1.44
+        },
+        "object": {
+          "spinRate": 0.0100000000000002,
+          "floatAmp": 0,
+          "floatSpeed": 0.5,
+          "floatOffset": 0
+        },
+        "autos": [
+          {
+            "label": "kaleidoSectors",
+            "on": false
+          },
+          {
+            "label": "hueShift",
+            "on": false
+          },
+          {
+            "label": "iridescence",
+            "on": false
+          },
+          {
+            "label": "filmIOR",
+            "on": false
+          },
+          {
+            "label": "filmThickness(nm)",
+            "on": false
+          },
+          {
+            "label": "paperFiber",
+            "on": false
+          },
+          {
+            "label": "edgeGlow",
+            "on": false
+          },
+          {
+            "label": "bloomStrength",
+            "on": false
+          },
+          {
+            "label": "bloomRadius",
+            "on": false
+          },
+          {
+            "label": "brightness",
+            "on": false
+          },
+          {
+            "label": "contrast",
+            "on": false
+          },
+          {
+            "label": "textureScale",
+            "on": false
+          },
+          {
+            "label": "textureEvolution",
+            "on": false
+          },
+          {
+            "label": "spin (turns/s)",
+            "on": false
+          },
+          {
+            "label": "floatAmplitude",
+            "on": false
+          },
+          {
+            "label": "floatSpeed (Hz)",
+            "on": false
+          },
+          {
+            "label": "floatOffsetY",
+            "on": false
+          }
+        ]
+      }
     }
   ]
 }
