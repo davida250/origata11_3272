@@ -5,6 +5,15 @@
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
   <title>Origata v0.32</title>
   <meta name="theme-color" content="#050509" />
+
+  <!-- GitHub preset storage config (edit these for your repo) -->
+  <meta name="gh-owner"  content="YOUR_GH_USER_OR_ORG" />
+  <meta name="gh-repo"   content="YOUR_REPO" />
+  <meta name="gh-branch" content="main" />
+  <meta name="gh-path"   content="presets.json" />
+  <!-- Optional (demo only; not recommended): inline token -->
+  <!-- <meta name="gh-token"   content="YOUR_FINE_GRAINED_PAT" /> -->
+
   <style>
     html, body { height: 100%; margin: 0; background: #050509; }
     #app { position: fixed; inset: 0; }
@@ -29,7 +38,7 @@
     .row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
     .muted { opacity: 0.8 }
 
-    /* --- User Presets panel (upper-left) --- */
+    /* --- User Presets panel (upper-left, under brand) --- */
     .presets-panel {
       position: fixed; left: 12px; top: 32px; z-index: 11;
       display: grid; gap: 6px; align-items: start;
@@ -42,16 +51,22 @@
       padding: 8px 10px;
     }
     .presets-panel label { display: grid; gap: 4px; }
-    .presets-panel select, .presets-panel button {
+    .presets-panel select, .presets-panel button, .presets-panel input[type="password"] {
       padding: 6px 10px; background: #11131a; border: 1px solid #2a3244; border-radius: 6px; cursor: pointer;
       color: #e7f2ff;
     }
     .presets-panel button:hover, .presets-panel select:hover { background: #151a22; }
+    .presets-panel .row { display: flex; gap: 6px; align-items: center; flex-wrap: wrap; }
+    .cloud { display: inline-flex; gap: 6px; align-items: center; }
+    .chip { padding: 2px 6px; border: 1px solid #2a3244; border-radius: 999px; background:#0c1018; }
+    .gear { width: 26px; height: 26px; line-height: 1; }
+    #cloudConfig { display:none; }
+    #cloudConfig.open { display: grid; gap: 6px; }
     @media (max-width: 560px) {
       .presets-panel { left: 10px; right: 10px; width: auto; }
     }
 
-    /* --- Modal --- */
+    /* --- Save Preset Modal --- */
     .modal.hidden { display: none; }
     .modal {
       position: fixed; inset: 0; z-index: 100;
@@ -94,16 +109,31 @@
   <div id="app"></div>
   <div class="brand">Origata v0.32 - drag to orbit, wheel to zoom</div>
 
-  <!-- User Presets (upper-left, under brand) -->
+  <!-- Presets (Server) -->
   <div class="presets-panel" id="presetsPanel">
-    <label>
-      Presets
-      <select id="userPresets"></select>
-    </label>
     <div class="row">
-      <button id="btnLoadUserPreset" title="Load the selected user preset">Load</button>
-      <button id="btnDeleteUserPreset" title="Delete the selected user preset">Delete</button>
-      <button id="btnSaveUserPreset" title="Save current sliders & checkboxes as a preset">Save Preset</button>
+      <label style="flex:1">
+        Presets
+        <select id="userPresets"></select>
+      </label>
+      <span class="cloud">
+        <span id="cloudStatus" class="chip">Cloud: …</span>
+        <button id="btnCloudConfig" class="gear" title="Cloud settings">⚙</button>
+      </span>
+    </div>
+    <div class="row">
+      <button id="btnLoadUserPreset"   title="Load the selected preset">Load</button>
+      <button id="btnDeleteUserPreset" title="Delete the selected preset">Delete</button>
+      <button id="btnSaveUserPreset"   title="Save current sliders & checkboxes as a preset">Save Preset</button>
+    </div>
+    <div id="cloudConfig">
+      <div class="row">
+        <input id="ghTokenInput" type="password" placeholder="GitHub token (fine‑grained, contents:write)" style="flex:1"/>
+        <button id="btnTokenSave">Connect</button>
+        <button id="btnTokenClear" class="muted">Disconnect</button>
+      </div>
+      <div class="muted">Owner: <code id="ghOwner"></code> · Repo: <code id="ghRepo"></code> · Branch: <code id="ghBranch"></code> · Path: <code id="ghPath"></code></div>
+      <div class="muted">Tip: send an editor link like <code>#gh_token=&lt;TOKEN&gt;</code> to let clients save.</div>
     </div>
   </div>
 
