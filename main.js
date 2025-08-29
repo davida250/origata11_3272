@@ -2,7 +2,7 @@
 /**
  * Origami — Rigid‑Hinge Folding with UV‑space Textures (Kaleido / Perlin / Fractal)
  * (Added: brightness/contrast (+Auto), back-face hue shift, object spin/float (+Auto),
- *  texture evolution (+Auto).)
+ *  texture evolution (+Auto).  + Server presets via GitHub Contents API)
  */
 
 import * as THREE from 'three';
@@ -39,7 +39,7 @@ composer.addPass(new RenderPass(scene, camera));
 const bloom = new UnrealBloomPass(new THREE.Vector2(window.innerWidth, window.innerHeight), 0.35, 0.6, 0.2);
 composer.addPass(bloom);
 const fxaa = new ShaderPass(FXAAShader);
-fxaa.material.uniforms.resolution.value.set(1 / window.innerWidth, 1 / window.innerHeight);
+fxaa.material.uniforms.resolution.value.set(1 / window.innerWidth, 1 / window.Height);
 composer.addPass(fxaa);
 composer.addPass(new OutputPass());
 
@@ -48,17 +48,13 @@ const SIZE = 3.0;            // square sheet edge length
 const BASE_SEG = 48;         // base grid before cutting along creases
 const VALLEY = +1, MOUNTAIN = -1;
 
-
 // ---------- Video (Movie texture) ----------
-// Prewarm a looping, muted <video> and wrap it in a THREE.VideoTexture.
-// Playback will start only when the "Movie" texture is selected.
 const videoEl = document.createElement('video');
 videoEl.src = './origata.mp4';
 videoEl.loop = true;
-videoEl.muted = true;        // satisfies modern autoplay policies
-videoEl.playsInline = true;  // prevents fullscreen takeover on mobile
+videoEl.muted = true;
+videoEl.playsInline = true;
 videoEl.preload = 'auto';
-// Note: THREE.VideoTexture auto-updates as the <video> plays.
 const videoTex = new THREE.VideoTexture(videoEl);
 videoTex.colorSpace = THREE.SRGBColorSpace;
 videoTex.minFilter = THREE.LinearFilter;
@@ -69,15 +65,9 @@ videoTex.wrapT = THREE.ClampToEdgeWrapping;
 
 // ---------- Math helpers ----------
 const tmp = { v: new THREE.Vector3(), u: new THREE.Vector3() };
-function signedDistance2(p /*Vec2|Vec3*/, a /*Vec3*/, d /*unit Vec3*/) {
-  const px = p.x - a.x, py = p.y - a.y;
-  return d.x * py - d.y * px; // z-component of 2D cross
-}
-function rotatePointAroundLine(p, a, axisUnit, ang) {
-  tmp.v.copy(p).sub(a).applyAxisAngle(axisUnit, ang).add(a);
-  p.copy(tmp.v);
-}
-function rotateVectorAxis(v, axisUnit, ang) { v.applyAxisAngle(axisUnit, ang); }
+function signedDistance2(p, a, d) { const px = p.x - a.x, py = p.y - a.y; return d.x * py - d.y * px; }
+function rotatePointAroundLine(p, a, axisUnit, ang){ tmp.v.copy(p).sub(a).applyAxisAngle(axisUnit, ang).add(a); p.copy(tmp.v); }
+function rotateVectorAxis(v, axisUnit, ang){ v.applyAxisAngle(axisUnit, ang); }
 function clamp(x, lo, hi){ return Math.max(lo, Math.min(hi, x)); }
 function clamp01(x){ return clamp(x, 0, 1); }
 const Easings = {
@@ -94,13 +84,13 @@ const base = {
   count: 0,
   A: Array.from({ length: MAX_CREASES }, () => new THREE.Vector3()),
   D: Array.from({ length: MAX_CREASES }, () => new THREE.Vector3(1,0,0)),
-  amp:  new Array(MAX_CREASES).fill(0),      // |angle| in radians
-  sign: new Array(MAX_CREASES).fill(1),      // +1=valley, -1=mountain
+  amp:  new Array(MAX_CREASES).fill(0),
+  sign: new Array(MAX_CREASES).fill(1),
   mCount: new Array(MAX_CREASES).fill(0),
   mA:  Array.from({ length: MAX_CREASES }, () => Array.from({ length: MAX_MASKS_PER }, () => new THREE.Vector3())),
   mD:  Array.from({ length: MAX_CREASES }, () => Array.from({ length: MAX_MASKS_PER }, () => new THREE.Vector3(1,0,0))),
-  t0:  new Array(MAX_CREASES).fill(-1),      // start time in [0..1], −1 = sequential default
-  t1:  new Array(MAX_CREASES).fill(-1)       // end time
+  t0:  new Array(MAX_CREASES).fill(-1),
+  t1:  new Array(MAX_CREASES).fill(-1)
 };
 function resetBase(){
   base.count = 0;
@@ -141,65 +131,43 @@ const eff = {
 
 // ---------- Drive (global) ----------
 const drive = {
-  animate:false,       // ping-pong 0↔1
-  baseSpeed:0.25,      // progress units per second *before* multiplier
-  progress:0.0,        // global progress across timeline
+  animate:false,
+  baseSpeed:0.25,
+  progress:0.0,
   easing:'smoothstep',
   dir:+1,
   stepCount:1,
   checkpoints:[0,1]
 };
-function speedMultiplierFromSlider(x01){
-  // map [0..1] → [1/5 .. 5], mid=1 (exponential for symmetric perception)
-  return Math.pow(5, (x01 - 0.5) * 2.0);
-}
-
-// Build checkpoints from unique t0s (+0 and 1) for Step Prev/Next UI
+function speedMultiplierFromSlider(x01){ return Math.pow(5, (x01 - 0.5) * 2.0); }
 function rebuildCheckpoints(){
   const pts = new Set([0,1]);
-  for (let i=0;i<base.count;i++){
-    if (base.t0[i] >= 0) pts.add(clamp01(base.t0[i]));
-  }
+  for (let i=0;i<base.count;i++){ if (base.t0[i] >= 0) pts.add(clamp01(base.t0[i])); }
   const arr = Array.from(pts).sort((a,b)=>a-b);
-  drive.checkpoints = arr;
-  drive.stepCount = arr.length - 1;
+  drive.checkpoints = arr; drive.stepCount = arr.length - 1;
 }
-
-// Map global progress → per-crease angles along timeline.
 function computeAngles(){
   const E = Easings[drive.easing] || Easings.linear;
-  const N = Math.max(1, base.count);
-  const p = clamp01(drive.progress);
+  const N = Math.max(1, base.count); const p = clamp01(drive.progress);
   for (let i=0;i<base.count;i++){
     const t0 = (base.t0[i] >= 0 ? base.t0[i] : (i/N));
     const t1 = (base.t1[i] >= 0 ? base.t1[i] : ((i+1)/N));
     let localT = 0.0;
     if (p <= t0) localT = 0.0;
     else if (p >= t1) localT = 1.0;
-    else {
-      const u = (p - t0) / Math.max(1e-6, (t1 - t0));
-      localT = clamp01(u);
-    }
+    else { const u = (p - t0) / Math.max(1e-6, (t1 - t0)); localT = clamp01(u); }
     localT = E(localT);
     eff.ang[i]    = base.sign[i] * base.amp[i] * localT;
     eff.mCount[i] = base.mCount[i];
   }
 }
-
-// propagate axes and mask lines by earlier folds (crisp hinge: only + side moves)
 function computeEffectiveFrames(){
-  // base copy
   for (let i=0;i<base.count;i++){
     eff.A[i].copy(base.A[i]); eff.D[i].copy(base.D[i]).normalize();
-    for (let m=0;m<MAX_MASKS_PER;m++){
-      eff.mA[i][m].copy(base.mA[i][m]);
-      eff.mD[i][m].copy(base.mD[i][m]).normalize();
-    }
+    for (let m=0;m<MAX_MASKS_PER;m++){ eff.mA[i][m].copy(base.mA[i][m]); eff.mD[i][m].copy(base.mD[i][m]).normalize(); }
   }
-  // sequentially rotate future creases & their masks
   for (let j=0;j<base.count;j++){
-    const Aj = eff.A[j]; const Dj = eff.D[j].clone().normalize();
-    const ang = eff.ang[j]; if (Math.abs(ang) < 1e-7) continue;
+    const Aj = eff.A[j]; const Dj = eff.D[j].clone().normalize(); const ang = eff.ang[j]; if (Math.abs(ang) < 1e-7) continue;
     for (let k=j+1;k<base.count;k++){
       const sd = signedDistance2(eff.A[k], Aj, Dj);
       if (sd > 0.0){
@@ -207,10 +175,7 @@ function computeEffectiveFrames(){
         rotateVectorAxis(eff.D[k], Dj, ang); eff.D[k].normalize();
         for (let m=0;m<MAX_MASKS_PER;m++){
           const sdM = signedDistance2(eff.mA[k][m], Aj, Dj);
-          if (sdM > 0.0){
-            rotatePointAroundLine(eff.mA[k][m], Aj, Dj, ang);
-            rotateVectorAxis(eff.mD[k][m], Dj, ang); eff.mD[k][m].normalize();
-          }
+          if (sdM > 0.0){ rotatePointAroundLine(eff.mA[k][m], Aj, Dj, ang); rotateVectorAxis(eff.mD[k][m], Dj, ang); eff.mD[k][m].normalize(); }
         }
       }
     }
