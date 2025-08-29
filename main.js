@@ -968,9 +968,17 @@ async function initServerPresetsUI(){
     } catch (err){ console.error(err); alert('Save failed. Check token/repo config and retry.'); }
   });
   btnLoadUserPreset?.addEventListener('click', () => {
-    const name = userPresetsSel.value; const p = GitHubPresets.list().find(x => x.name === name);
-    if (p) applyState(p.state);
+    const name = userPresetsSel.value;
+    const p = GitHubPresets.list().find(x => x.name === name);
+    if (!p) return;
+    applyState(p.state);
+    // Force a visible update immediately (don’t wait for next RAF tick)
+    updateFolding();           // recompute angles, frames, push uniforms
+    controls.update();
+    composer.render();
   });
+  // Optional: auto-load when selection changes (single-click experience)
+  userPresetsSel?.addEventListener('change', () => btnLoadUserPreset.click());
   userPresetsSel?.addEventListener('dblclick', () => btnLoadUserPreset.click());
   btnDeleteUserPreset?.addEventListener('click', async () => {
     const name = userPresetsSel.value; if (!name) return;
@@ -1103,3 +1111,4 @@ window.addEventListener('resize', () => {
 
 // ---------- Conventions ----------
 /* valley = +°, mountain = −°. */
+
