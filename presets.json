@@ -336,7 +336,7 @@
           "textureType": "Movie",
           "textureScale01": 0.5,
           "textureEvolution": 0,
-          "bloomStrength": 0.86,
+          "bloomStrength": 0.55,
           "bloomRadius": 1.23
         },
         "object": {
