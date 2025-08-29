@@ -735,48 +735,79 @@ const GH = {
 const GitHubPresets = (() => {
   let mem = { version: 1, presets: [] };
   let sha = null;
-  function headers(){ const h = { 'Accept': 'application/vnd.github+json' }; if (GH.token) h['Authorization'] = `Bearer ${GH.token}`; return h; }
+  function headers(opts = {}) {
+    const h = {
+      'Accept': 'application/vnd.github+json',
+      'X-GitHub-Api-Version': '2022-11-28'
+    };
+    if (GH.token) h['Authorization'] = `Bearer ${GH.token}`;
+    // When reading file contents, request RAW bytes via API (CORS-friendly).
+    if (opts.raw) h['Accept'] = 'application/vnd.github.raw';
+    return h;
+  }
   function toB64(s){ return btoa(unescape(encodeURIComponent(s))); }
+
   async function init(){
+    // Load contents via API (RAW media type) to avoid raw.githubusercontent CORS flakiness.
     mem = { version:1, presets:[] };
+    const base = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH.path}?ref=${encodeURIComponent(GH.branch)}`;
     try {
-      if (GH.owner && GH.repo){
-        const raw = `https://raw.githubusercontent.com/${GH.owner}/${GH.repo}/${GH.branch}/${GH.path}?_=${Date.now()}`;
-        const res = await fetch(raw, { cache:'no-store' });
-        if (res.ok) {
-          const j = await res.json(); if (Array.isArray(j?.presets)) mem = j;
-        }
+      const res = await fetch(base, { headers: headers({ raw:true }), cache:'no-store' });
+      if (res.ok) {
+        const txt = await res.text();
+        const j = JSON.parse(txt);
+        if (Array.isArray(j?.presets)) mem = j;
+      } else if (res.status !== 404) {
+        console.warn('GitHubPresets.init: raw GET failed', res.status);
       }
-    } catch (e){ console.warn('Raw fetch error', e); }
+    } catch (e){ console.warn('GitHubPresets.init: raw GET error', e); }
+    // Get current SHA for updates.
     try {
-      const meta = await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH.path}?ref=${encodeURIComponent(GH.branch)}`, { headers: headers() });
+      const meta = await fetch(base, { headers: headers() });
       if (meta.ok){ const j = await meta.json(); sha = j.sha || null; }
       else if (meta.status === 404){ sha = null; }
-    } catch {}
+    } catch (e){ console.warn('GitHubPresets.init: meta GET error', e); }
   }
+
   function list(){ return mem.presets.slice().sort((a,b)=>a.name.localeCompare(b.name)); }
   function exists(name){ return mem.presets.some(p => p.name === name); }
   function upsert(p){ const i = mem.presets.findIndex(x => x.name === p.name); if (i>=0) mem.presets[i]=p; else mem.presets.push(p); }
   function remove(name){ const n0=mem.presets.length; mem.presets = mem.presets.filter(p=>p.name!==name); return mem.presets.length!==n0; }
+
   async function commit(message){
     if (!GH.token) throw new Error('No GitHub token (cannot write)');
+    // Refresh SHA just before commit to reduce conflicts.
+    try {
+      const meta = await fetch(`https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH.path}?ref=${encodeURIComponent(GH.branch)}`, { headers: headers() });
+      if (meta.ok){ const j=await meta.json(); sha = j.sha || null; }
+    } catch {}
     const content = toB64(JSON.stringify(mem, null, 2));
-    const body = { message, content, branch: GH.branch }; if (sha) body.sha = sha;
     const endpoint = `https://api.github.com/repos/${GH.owner}/${GH.repo}/contents/${GH.path}`;
-    const res = await fetch(endpoint, { method:'PUT', headers:{ ...headers(), 'Content-Type':'application/json' }, body: JSON.stringify(body) });
+    const body = { message, content, branch: GH.branch, ...(sha ? { sha } : {}) };
+    const res = await fetch(endpoint, {
+      method:'PUT',
+      headers:{ ...headers(), 'Content-Type':'application/json' },
+      body: JSON.stringify(body)
+    });
     if (!res.ok){
       if (res.status === 409){
-        const meta = await fetch(`${endpoint}?ref=${encodeURIComponent(GH.branch)}`, { headers: headers() });
-        if (meta.ok){ const j=await meta.json(); sha = j.sha || null;
-          const res2 = await fetch(endpoint, { method:'PUT', headers:{ ...headers(), 'Content-Type':'application/json' }, body: JSON.stringify({ ...body, sha }) });
-          if (!res2.ok) throw new Error(`Commit failed (retry): ${res2.status}`);
+        const meta2 = await fetch(`${endpoint}?ref=${encodeURIComponent(GH.branch)}`, { headers: headers() });
+        if (meta2.ok){
+          const j=await meta2.json(); sha = j.sha || null;
+          const res2 = await fetch(endpoint, {
+            method:'PUT',
+            headers:{ ...headers(), 'Content-Type':'application/json' },
+            body: JSON.stringify({ message, content, branch: GH.branch, ...(sha ? { sha } : {}) })
+          });
+          if (!res2.ok) throw new Error(`Commit failed (retry): ${res2.status} ${await res2.text().catch(()=> '')}`);
           const j2 = await res2.json(); sha = j2.content?.sha || sha; return;
         }
       }
-      throw new Error(`Commit failed: ${res.status}`);
+      throw new Error(`Commit failed: ${res.status} ${await res.text().catch(()=> '')}`);
     }
     const j = await res.json(); sha = j.content?.sha || sha;
   }
+
   return { init, list, exists, upsert, remove, commit };
 })();
 
