@@ -3,8 +3,8 @@
   "presets": [
     {
       "name": "Sun 01",
-      "createdAt": "2025-08-29T00:35:50.143Z",
-      "updatedAt": "2025-08-29T00:35:50.143Z",
+      "createdAt": "2025-08-29T00:37:26.556Z",
+      "updatedAt": "2025-08-29T00:37:26.556Z",
       "state": {
         "modelId": "half-vertical-valley",
         "progress": 0,
@@ -19,13 +19,13 @@
           "filmNm": 360,
           "fiber": 0.35,
           "edgeGlow": 0.8,
-          "brightness": -0.436,
+          "brightness": 0,
           "contrast": 0,
-          "textureType": "Perlin/FBM",
+          "textureType": "Kaleido (UV)",
           "textureScale01": 0.5,
           "textureEvolution": 0,
-          "bloomStrength": 0.92,
-          "bloomRadius": 0.79
+          "bloomStrength": 0.35,
+          "bloomRadius": 0.6
         },
         "object": {
           "spinRate": 0,
