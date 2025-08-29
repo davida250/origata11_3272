@@ -104,6 +104,110 @@
           }
         ]
       }
+    },
+    {
+      "name": "Sun_01",
+      "createdAt": "2025-08-29T02:25:48.814Z",
+      "updatedAt": "2025-08-29T02:25:48.814Z",
+      "state": {
+        "modelId": "half-vertical-valley",
+        "progress": 0,
+        "animate": false,
+        "easing": "smoothstep",
+        "speed01": 0.5,
+        "look": {
+          "sectors": 10,
+          "hueShift": 0,
+          "iridescence": 0.257,
+          "filmIOR": 1.35,
+          "filmNm": 360,
+          "fiber": 0.368,
+          "edgeGlow": 0.8,
+          "brightness": -0.24,
+          "contrast": 1,
+          "textureType": "Perlin/FBM",
+          "textureScale01": 0.389,
+          "textureEvolution": 0.553000000000001,
+          "bloomStrength": 0.55,
+          "bloomRadius": 0.61
+        },
+        "object": {
+          "spinRate": 0.0249999999999999,
+          "floatAmp": 0,
+          "floatSpeed": 0.5,
+          "floatOffset": 0
+        },
+        "autos": [
+          {
+            "label": "kaleidoSectors",
+            "on": false
+          },
+          {
+            "label": "hueShift",
+            "on": false
+          },
+          {
+            "label": "iridescence",
+            "on": false
+          },
+          {
+            "label": "filmIOR",
+            "on": false
+          },
+          {
+            "label": "filmThickness(nm)",
+            "on": false
+          },
+          {
+            "label": "paperFiber",
+            "on": false
+          },
+          {
+            "label": "edgeGlow",
+            "on": false
+          },
+          {
+            "label": "bloomStrength",
+            "on": false
+          },
+          {
+            "label": "bloomRadius",
+            "on": false
+          },
+          {
+            "label": "brightness",
+            "on": false
+          },
+          {
+            "label": "contrast",
+            "on": false
+          },
+          {
+            "label": "textureScale",
+            "on": false
+          },
+          {
+            "label": "textureEvolution",
+            "on": false
+          },
+          {
+            "label": "spin (turns/s)",
+            "on": false
+          },
+          {
+            "label": "floatAmplitude",
+            "on": false
+          },
+          {
+            "label": "floatSpeed (Hz)",
+            "on": false
+          },
+          {
+            "label": "floatOffsetY",
+            "on": false
+          }
+        ]
+      }
     }
   ]
 }
